@@ -2,7 +2,7 @@
 
 # automerge-nix
 
-**WebAssembly build and pure Nix bindings for [Automerge](https://automerge.org/) (v0.12), designed for [wechselbalg](https://github.com/embedding-shapes) and Nix-based application frameworks.**
+**WebAssembly build and pure Nix bindings for [Automerge](https://automerge.org/) (v0.12), designed for [wechselbalg](https://github.com/lomenzel/wechselbalg) and Nix-based application frameworks.**
 
 `automerge-nix` bridges the official Rust Automerge CRDT engine into Nix environments compiled to JavaScript via `wechselbalg`'s WASM primop. It allows you to build collaborative, local-first applications where document mutations, conflict resolution, character-level text splicing, and vector-clock branching can be expressed directly in pure Nix code.
 
