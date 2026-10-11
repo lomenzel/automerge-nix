@@ -1,3 +1,5 @@
+# ATTENTION: ITS MOSTLY AI GENERATED
+
 # automerge-nix
 
 **WebAssembly build and pure Nix bindings for [Automerge](https://automerge.org/) (v0.12), designed for [wechselbalg](https://github.com/embedding-shapes) and Nix-based application frameworks.**
