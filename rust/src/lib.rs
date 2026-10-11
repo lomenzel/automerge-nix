@@ -14,13 +14,32 @@ extern "C" {
     fn malloc(size: usize) -> *mut u8;
 }
 
+fn init_panic_hook() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        std::panic::set_hook(Box::new(|info| {
+            println!(
+                "\n================== AUTOMERGE PANIC ==================\n{}\n=====================================================\n",
+                info
+            );
+        }));
+    });
+}
+
 fn to_c_string(s: String) -> *mut c_char {
     let bytes = s.into_bytes();
     let len = bytes.len();
+    eprintln!(">>> [AUTOMERGE] to_c_string: string length is {}", len);
     unsafe {
         let ptr = malloc(len + 1);
+        eprintln!(">>> [AUTOMERGE] to_c_string: malloc returned {:?}", ptr);
+        if ptr.is_null() {
+            eprintln!(">>> [AUTOMERGE] FATAL: malloc returned NULL pointer!");
+            return std::ptr::null_mut();
+        }
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, len);
         *ptr.add(len) = 0;
+        eprintln!(">>> [AUTOMERGE] to_c_string: copy successful");
         ptr as *mut c_char
     }
 }
@@ -37,14 +56,20 @@ struct Response<T> {
 }
 
 fn ok<T: Serialize>(val: T) -> *mut c_char {
+    eprintln!(">>> [AUTOMERGE] ok: wrapping response");
     let resp = Response {
         success: true,
         data: Some(val),
         error: None,
     };
-    to_c_string(serde_json::to_string(&resp).unwrap())
+    match serde_json::to_string(&resp) {
+        Ok(json) => to_c_string(json),
+        Err(e) => {
+            eprintln!(">>> [AUTOMERGE] ok: serde_json error: {}", e);
+            err(e)
+        }
+    }
 }
-
 fn err(msg: impl ToString) -> *mut c_char {
     let resp: Response<()> = Response {
         success: false,
@@ -591,6 +616,7 @@ pub unsafe extern "C" fn automerge_init_doc(input: *const c_char) -> *mut c_char
 
 #[no_mangle]
 pub unsafe extern "C" fn automerge_change(input: *const c_char) -> *mut c_char {
+    eprintln!(">>> [AUTOMERGE ENTER] automerge_change");
     let raw = match CStr::from_ptr(input).to_str() {
         Ok(r) => r,
         Err(e) => return err(e),
@@ -844,15 +870,29 @@ pub unsafe extern "C" fn automerge_merge(input: *const c_char) -> *mut c_char {
 
 #[no_mangle]
 pub unsafe extern "C" fn automerge_sync_state_new(_input: *const c_char) -> *mut c_char {
+    init_panic_hook();
+    eprintln!(">>> [AUTOMERGE] 1. Entered automerge_sync_state_new");
+
     let state = State::new();
+    eprintln!(">>> [AUTOMERGE] 2. State::new created successfully");
+
     match encode_sync_state(&state) {
-        Ok(encoded) => ok(encoded),
-        Err(error) => err(error),
+        Ok(encoded) => {
+            eprintln!(">>> [AUTOMERGE] 3. encode_sync_state ok: encoded len={}", encoded.len());
+            let res = ok(encoded);
+            eprintln!(">>> [AUTOMERGE] 4. ok() returned {:?}", res);
+            res
+        }
+        Err(error) => {
+            eprintln!(">>> [AUTOMERGE] 3. encode_sync_state error: {}", error);
+            err(error)
+        }
     }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn automerge_sync_generate_message(input: *const c_char) -> *mut c_char {
+    eprintln!(">>> [AUTOMERGE ENTER] automerge_sync_generate_message");
     let raw = match CStr::from_ptr(input).to_str() {
         Ok(r) => r,
         Err(e) => return err(e),
@@ -891,6 +931,7 @@ pub unsafe extern "C" fn automerge_sync_generate_message(input: *const c_char) -
 
 #[no_mangle]
 pub unsafe extern "C" fn automerge_sync_receive_message(input: *const c_char) -> *mut c_char {
+    eprintln!(">>> [AUTOMERGE ENTER] automerge_sync_receive_message");
     let raw = match CStr::from_ptr(input).to_str() {
         Ok(r) => r,
         Err(e) => return err(e),

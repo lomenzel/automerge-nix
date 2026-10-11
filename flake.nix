@@ -61,227 +61,246 @@
             '';
           };
 
-        lib = (prev.lib or { }) // {
-          automerge =
-            let
-              b64Wasm = builtins.readFile (
-                final.runCommand "automerge-base64" { } ''
-                  base64 -w0 "${final.automerge-wasm}/automerge.wasm" > $out
-                ''
-              );
-
-              # Safe call wrapper: intercepts { success, data, error } envelope
-              callWasm = fn: args:
+        lib =
+          let
+            b64Wasm = builtins.readFile (
+              final.runCommand "automerge-base64" { } ''
+                base64 -w0 "${final.automerge-wasm}/automerge.wasm" > $out
+              ''
+            );
+          in
+          prev.lib.extend (
+            lfinal: lprev: {
+              automerge =
                 let
-                  res = final.lib.wasm {
-                    bytecode = b64Wasm;
-                    function = fn;
-                  } args;
-                in
-                if res.success then
-                  res.data
-                else
-                  throw "automerge-nix [${fn}]: ${res.error}";
 
-              normPath = p: if builtins.isList p then p else [ p ];
-
-              dHelpers = {
-                put = path: value: {
-                  action = "put";
-                  path = normPath path;
-                  inherit value;
-                };
-                counter = path: value: {
-                  action = "counter";
-                  path = normPath path;
-                  inherit value;
-                };
-                insert = path: index: value: {
-                  action = "insert";
-                  path = normPath path;
-                  inherit index value;
-                };
-                delete = path: {
-                  action = "delete";
-                  path = normPath path;
-                };
-                inc = path: value: {
-                  action = "inc";
-                  path = normPath path;
-                  inherit value;
-                };
-                spliceText = path: index: del: text: {
-                  action = "splicetext";
-                  path = normPath path;
-                  inherit index del text;
-                };
-                spliceList = path: index: del: values: {
-                  action = "splicelist";
-                  path = normPath path;
-                  inherit index del values;
-                };
-                mark = path: start: end: name: value: {
-                  action = "mark";
-                  path = normPath path;
-                  inherit start end name value;
-                };
-                unmark = path: start: end: name: {
-                  action = "unmark";
-                  path = normPath path;
-                  inherit start end name;
-                };
-              };
-
-              init =
-                {
-                  actor ? null,
-                  entropy ? null,
-                }:
-                let
-                  resolvedActor =
-                    if actor != null then
-                      actor
-                    else if entropy != null then
-                      builtins.hashString "sha256" (builtins.toJSON entropy)
-                    else
-                      throw "automerge.init: you must provide either 'actor' or 'entropy'";
-                in
-                {
-                  actor = resolvedActor;
-
-                  new =
-                    { }:
-                    (callWasm "automerge_init_doc" {
-                      actor = resolvedActor;
-                    }).doc;
-
-                  # Polymorphic change: handles both 2 and 3 argument forms
-                  change =
-                    doc: arg2:
+                  # Safe call wrapper: intercepts { success, data, error } envelope
+                  callWasm =
+                    fn: args:
                     let
-                      hasOptions = builtins.isAttrs arg2 && !builtins.isFunction arg2;
+                      res = final.lib.wasm {
+                        bytecode = b64Wasm;
+                        function = fn;
+                      } args;
                     in
-                    if hasOptions then
-                      changeFn:
-                        (callWasm "automerge_change" {
-                          inherit doc;
+                    if res.success then res.data else throw "automerge-nix [${fn}]: ${res.error}";
+
+                  normPath = p: if builtins.isList p then p else [ p ];
+
+                  dHelpers = {
+                    put = path: value: {
+                      action = "put";
+                      path = normPath path;
+                      inherit value;
+                    };
+                    counter = path: value: {
+                      action = "counter";
+                      path = normPath path;
+                      inherit value;
+                    };
+                    insert = path: index: value: {
+                      action = "insert";
+                      path = normPath path;
+                      inherit index value;
+                    };
+                    delete = path: {
+                      action = "delete";
+                      path = normPath path;
+                    };
+                    inc = path: value: {
+                      action = "inc";
+                      path = normPath path;
+                      inherit value;
+                    };
+                    spliceText = path: index: del: text: {
+                      action = "splicetext";
+                      path = normPath path;
+                      inherit index del text;
+                    };
+                    spliceList = path: index: del: values: {
+                      action = "splicelist";
+                      path = normPath path;
+                      inherit index del values;
+                    };
+                    mark = path: start: end: name: value: {
+                      action = "mark";
+                      path = normPath path;
+                      inherit
+                        start
+                        end
+                        name
+                        value
+                        ;
+                    };
+                    unmark = path: start: end: name: {
+                      action = "unmark";
+                      path = normPath path;
+                      inherit start end name;
+                    };
+                  };
+
+                  init =
+                    {
+                      actor ? null,
+                      entropy ? null,
+                    }:
+                    let
+                      resolvedActor =
+                        if actor != null then
+                          actor
+                        else if entropy != null then
+                          builtins.hashString "sha256" (builtins.toJSON entropy)
+                        else
+                          throw "automerge.init: you must provide either 'actor' or 'entropy'";
+                    in
+                    {
+                      actor = resolvedActor;
+
+                      new =
+                        { }:
+                        (callWasm "automerge_init_doc" {
                           actor = resolvedActor;
-                          actions = changeFn dHelpers;
-                          message = arg2.message or null;
-                          time = arg2.time or null;
-                        }).doc
-                    else
-                      (callWasm "automerge_change" {
-                        inherit doc;
-                        actor = resolvedActor;
-                        actions = arg2 dHelpers;
-                        message = null;
-                        time = null;
-                      }).doc;
+                        }).doc;
 
-                  merge =
-                    doc1: doc2:
-                    (callWasm "automerge_merge" {
-                      inherit doc1 doc2;
-                    }).doc;
+                      # Polymorphic change: handles both 2 and 3 argument forms
+                      change =
+                        doc: arg2:
+                        let
+                          hasOptions = builtins.isAttrs arg2 && !builtins.isFunction arg2;
+                        in
+                        if hasOptions then
+                          changeFn:
+                          (callWasm "automerge_change" {
+                            inherit doc;
+                            actor = resolvedActor;
+                            actions = changeFn dHelpers;
+                            message = arg2.message or null;
+                            time = arg2.time or null;
+                          }).doc
+                        else
+                          (callWasm "automerge_change" {
+                            inherit doc;
+                            actor = resolvedActor;
+                            actions = arg2 dHelpers;
+                            message = null;
+                            time = null;
+                          }).doc;
 
-                  # --- 2-Way Sync Protocol (P2P / Veilid) ---
+                      merge =
+                        doc1: doc2:
+                        (callWasm "automerge_merge" {
+                          inherit doc1 doc2;
+                        }).doc;
 
-                  # Create new blank sync state for a remote peer
-                  syncNewState =
-                    { }:
-                    callWasm "automerge_sync_state_new" { };
+                      # --- 2-Way Sync Protocol (P2P / Veilid) ---
 
-                  # Generate outbound sync message: returns { doc, sync_state, message }
-                  syncGenerateMessage =
-                    { doc, syncState }:
-                    callWasm "automerge_sync_generate_message" {
-                      inherit doc;
-                      sync_state = syncState;
+                      # Create new blank sync state for a remote peer
+                      syncNewState =
+                        { }:
+                        callWasm "automerge_sync_state_new" { };
+
+                      # Generate outbound sync message: returns { doc, sync_state, message }
+                      syncGenerateMessage =
+                        { doc, syncState }:
+                        callWasm "automerge_sync_generate_message" {
+                          inherit doc;
+                          sync_state = syncState;
+                        };
+
+                      # Apply inbound sync message from remote peer: returns { doc, sync_state }
+                      syncReceiveMessage =
+                        {
+                          doc,
+                          syncState,
+                          message,
+                        }:
+                        callWasm "automerge_sync_receive_message" {
+                          inherit doc;
+                          sync_state = syncState;
+                          inherit message;
+                        };
+
+                      # --- Automerge Native Diff Engine ---
+                      diff =
+                        {
+                          doc,
+                          before,
+                          after,
+                        }:
+                        callWasm "automerge_diff" {
+                          inherit doc before after;
+                        };
+
+                      # Targeted subtree/field read
+                      get =
+                        doc: path:
+                        callWasm "automerge_get" {
+                          inherit doc;
+                          path = normPath path;
+                        };
+
+                      # Inspect Rich Text marks on a Text object
+                      getMarks =
+                        doc: path:
+                        callWasm "automerge_get_marks" {
+                          inherit doc;
+                          path = normPath path;
+                        };
+
+                      heads =
+                        doc:
+                        callWasm "automerge_heads" {
+                          inherit doc;
+                        };
+
+                      history =
+                        doc:
+                        callWasm "automerge_history" {
+                          inherit doc;
+                        };
+
+                      forkAt =
+                        doc: heads:
+                        (callWasm "automerge_fork_at" {
+                          inherit doc heads;
+                        }).doc;
+
+                      conflicts =
+                        doc: path:
+                        callWasm "automerge_conflicts" {
+                          inherit doc;
+                          path = normPath path;
+                        };
+
+                      materialize =
+                        doc:
+                        callWasm "automerge_materialize" {
+                          inherit doc;
+                        };
+
+                      withActor = newActor: init { actor = newActor; };
                     };
-
-                  # Apply inbound sync message from remote peer: returns { doc, sync_state }
-                  syncReceiveMessage =
-                    { doc, syncState, message }:
-                    callWasm "automerge_sync_receive_message" {
-                      inherit doc;
-                      sync_state = syncState;
-                      inherit message;
-                    };
-
-                  # --- Automerge Native Diff Engine ---
-                  diff =
-                    { doc, before, after }:
-                    callWasm "automerge_diff" {
-                      inherit doc before after;
-                    };
-
-                  # Targeted subtree/field read
-                  get =
-                    doc: path:
-                    callWasm "automerge_get" {
-                      inherit doc;
-                      path = normPath path;
-                    };
-
-                  # Inspect Rich Text marks on a Text object
-                  getMarks =
-                    doc: path:
-                    callWasm "automerge_get_marks" {
-                      inherit doc;
-                      path = normPath path;
-                    };
-
-                  heads =
-                    doc:
-                    callWasm "automerge_heads" {
-                      inherit doc;
-                    };
-
-                  history =
-                    doc:
-                    callWasm "automerge_history" {
-                      inherit doc;
-                    };
-
-                  forkAt =
-                    doc: heads:
-                    (callWasm "automerge_fork_at" {
-                      inherit doc heads;
-                    }).doc;
-
-                  conflicts =
-                    doc: path:
-                    callWasm "automerge_conflicts" {
-                      inherit doc;
-                      path = normPath path;
-                    };
-
-                  materialize =
-                    doc:
-                    callWasm "automerge_materialize" {
-                      inherit doc;
-                    };
-
-                  withActor = newActor: init { actor = newActor; };
+                in
+                {
+                  inherit init;
                 };
-            in
-            {
-              inherit init;
-            };
-        };
+            }
+          );
       };
 
-      packages = eachSystem ({ pkgs, ... }: {
-        default = pkgs.automerge-wasm;
-      });
+      packages = eachSystem (
+        { pkgs, ... }: {
+          default = pkgs.automerge-wasm;
+        }
+      );
 
       checks = eachSystem (
         { pkgs, ... }:
         {
           automerge-simulation =
             let
-              simulationNix = nameA: nameB:
+              simulationNix =
+                nameA: nameB:
                 let
                   alice = pkgs.lib.automerge.init { actor = nameA; };
                   bob = pkgs.lib.automerge.init { actor = nameB; };
@@ -324,18 +343,46 @@
                   stateB0 = bob.syncNewState { };
 
                   # Round 1: Alice generates sync message for Bob
-                  syncA1 = alice.syncGenerateMessage { doc = docAlice; syncState = stateA0; };
-                  syncB1 = bob.syncGenerateMessage { doc = docBob; syncState = stateB0; };
+                  syncA1 = alice.syncGenerateMessage {
+                    doc = docAlice;
+                    syncState = stateA0;
+                  };
+                  syncB1 = bob.syncGenerateMessage {
+                    doc = docBob;
+                    syncState = stateB0;
+                  };
 
                   # Round 1 delivery
-                  syncB2 = bob.syncReceiveMessage { doc = syncB1.doc; syncState = syncB1.sync_state; message = syncA1.message; };
-                  syncA2 = alice.syncReceiveMessage { doc = syncA1.doc; syncState = syncA1.sync_state; message = syncB1.message; };
+                  syncB2 = bob.syncReceiveMessage {
+                    doc = syncB1.doc;
+                    syncState = syncB1.sync_state;
+                    message = syncA1.message;
+                  };
+                  syncA2 = alice.syncReceiveMessage {
+                    doc = syncA1.doc;
+                    syncState = syncA1.sync_state;
+                    message = syncB1.message;
+                  };
 
                   # Round 2 acknowledgement and remaining changes
-                  syncA3 = alice.syncGenerateMessage { doc = syncA2.doc; syncState = syncA2.sync_state; };
-                  syncB3 = bob.syncGenerateMessage { doc = syncB2.doc; syncState = syncB2.sync_state; };
-                  syncB4 = bob.syncReceiveMessage { doc = syncB3.doc; syncState = syncB3.sync_state; message = syncA3.message; };
-                  syncA4 = alice.syncReceiveMessage { doc = syncA3.doc; syncState = syncA3.sync_state; message = syncB3.message; };
+                  syncA3 = alice.syncGenerateMessage {
+                    doc = syncA2.doc;
+                    syncState = syncA2.sync_state;
+                  };
+                  syncB3 = bob.syncGenerateMessage {
+                    doc = syncB2.doc;
+                    syncState = syncB2.sync_state;
+                  };
+                  syncB4 = bob.syncReceiveMessage {
+                    doc = syncB3.doc;
+                    syncState = syncB3.sync_state;
+                    message = syncA3.message;
+                  };
+                  syncA4 = alice.syncReceiveMessage {
+                    doc = syncA3.doc;
+                    syncState = syncA3.sync_state;
+                    message = syncB3.message;
+                  };
 
                   # 5. Targeted Reads & Marks
                   targetedViews = alice.get syncA4.doc "views";
